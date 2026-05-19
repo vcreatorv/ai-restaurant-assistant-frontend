@@ -302,7 +302,7 @@ export default function AdminPrompts() {
   if (loading) {
     return (
       <>
-        <AdminPageHeader title="Промпты" subtitle="Загружаем…" />
+        <AdminPageHeader title="Инструкции модели" subtitle="Загружаем…" />
         <div className="h-[60vh] flex items-center justify-center">
           <div className="w-8 h-8 rounded-full border-2 border-[var(--color-brand)] border-t-transparent animate-spin" />
         </div>
@@ -312,7 +312,7 @@ export default function AdminPrompts() {
   if (loadError) {
     return (
       <>
-        <AdminPageHeader title="Промпты" subtitle="Не удалось загрузить" />
+        <AdminPageHeader title="Инструкции модели" subtitle="Не удалось загрузить" />
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elev)] p-4 text-[14px] text-[var(--color-fg)]">
           <div className="font-semibold mb-1">Ошибка загрузки</div>
           <div className="text-[13px] text-[var(--color-fg-muted)]">{loadError}</div>
@@ -323,7 +323,7 @@ export default function AdminPrompts() {
   if (!active) {
     return (
       <>
-        <AdminPageHeader title="Промпты" subtitle="Промпты не настроены" />
+        <AdminPageHeader title="Инструкции модели" subtitle="Промпты не настроены" />
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elev)] p-4 text-[13px] text-[var(--color-fg-muted)]">
           В БД нет ни одного промпта. Применили ли вы миграцию <code>000008_prompts_decomposition</code>?
         </div>
@@ -333,7 +333,7 @@ export default function AdminPrompts() {
   return (
     <>
       <AdminPageHeader
-        title="Промпты"
+        title="Инструкции модели"
         subtitle="Что отдаём LLM. Меняйте на себе через «Тестировать в чате», публикуйте, когда уверены."
       />
 

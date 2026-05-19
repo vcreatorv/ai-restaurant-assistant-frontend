@@ -89,6 +89,7 @@ export default function AdminMenu() {
         name: c.name,
         sortOrder: c.sort_order,
         isAvailable: c.is_available,
+        role: c.role,
       })),
     );
     const merged = [...activeR.items, ...stopR.items]

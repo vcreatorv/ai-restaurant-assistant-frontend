@@ -10,11 +10,14 @@ export type AdminTag = {
   color: string;
 };
 
+export type AdminCategoryRole = "none" | "main" | "companion";
+
 export type AdminCategory = {
   id: number;
   name: string;
   sortOrder: number;
   isAvailable: boolean;
+  role: AdminCategoryRole;
 };
 
 export type AdminOrderStatus =
@@ -123,17 +126,17 @@ export const mockTags: AdminTag[] = [
 ];
 
 export const mockCategories: AdminCategory[] = [
-  { id: 1, name: "Завтраки", sortOrder: 1, isAvailable: true },
-  { id: 2, name: "Закуски", sortOrder: 2, isAvailable: true },
-  { id: 3, name: "Салаты", sortOrder: 3, isAvailable: true },
-  { id: 4, name: "Супы", sortOrder: 4, isAvailable: true },
-  { id: 5, name: "На гриле", sortOrder: 5, isAvailable: true },
-  { id: 6, name: "Мясное", sortOrder: 6, isAvailable: true },
-  { id: 7, name: "Морепродукты", sortOrder: 7, isAvailable: true },
-  { id: 8, name: "Паста", sortOrder: 8, isAvailable: true },
-  { id: 9, name: "Десерты", sortOrder: 9, isAvailable: true },
-  { id: 10, name: "Напитки", sortOrder: 10, isAvailable: true },
-  { id: 11, name: "Алкоголь", sortOrder: 11, isAvailable: false },
+  { id: 1, name: "Завтраки", sortOrder: 1, isAvailable: true, role: "none" },
+  { id: 2, name: "Закуски", sortOrder: 2, isAvailable: true, role: "companion" },
+  { id: 3, name: "Салаты", sortOrder: 3, isAvailable: true, role: "main" },
+  { id: 4, name: "Супы", sortOrder: 4, isAvailable: true, role: "main" },
+  { id: 5, name: "На гриле", sortOrder: 5, isAvailable: true, role: "main" },
+  { id: 6, name: "Мясное", sortOrder: 6, isAvailable: true, role: "main" },
+  { id: 7, name: "Морепродукты", sortOrder: 7, isAvailable: true, role: "main" },
+  { id: 8, name: "Паста", sortOrder: 8, isAvailable: true, role: "main" },
+  { id: 9, name: "Десерты", sortOrder: 9, isAvailable: true, role: "companion" },
+  { id: 10, name: "Напитки", sortOrder: 10, isAvailable: true, role: "companion" },
+  { id: 11, name: "Алкоголь", sortOrder: 11, isAvailable: false, role: "none" },
 ];
 
 const NAMES = [

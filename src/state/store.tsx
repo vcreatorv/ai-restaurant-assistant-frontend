@@ -196,7 +196,17 @@ type State = {
 
   getDishById(id: number): Dish | undefined;
 
-  addToCart(dishId: number, quantity?: number, note?: string): void;
+  /**
+   * addToCart добавляет позицию в корзину. source/messageId — для аналитики:
+   * "chat"+messageId если гость нажал «+» на карточке блюда в ответе ассистента,
+   * "menu" — со страницы /menu, и т.п. Если не передано — считается "menu".
+   */
+  addToCart(
+    dishId: number,
+    quantity?: number,
+    note?: string,
+    opts?: { source?: import("@/api/types").CartAddSource; messageId?: string },
+  ): void;
   setCartQuantity(dishId: number, quantity: number): void;
   removeFromCart(dishId: number): void;
   clearCart(): void;
@@ -391,7 +401,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setOrders([]);
     },
 
-    addToCart(dishId, quantity = 1, note) {
+    addToCart(dishId, quantity = 1, note, opts) {
       const existing = cart.find((it) => it.dishId === dishId);
       setCart((prev) => {
         const ex = prev.find((it) => it.dishId === dishId);
@@ -405,12 +415,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return [...prev, { dishId, quantity, note }];
       });
       if (!mockMode) {
+        // PATCH (увеличение quantity) — это тоже «событие добавления» для аналитики;
+        // но мы передаём source только в POST. PATCH не пишет cart_additions.
         if (existing) {
           void patchCartItem(dishId, {
             quantity: Math.min(50, existing.quantity + quantity),
           });
         } else {
-          void addCartItemApi({ dish_id: dishId, quantity, note: note ?? null });
+          void addCartItemApi({
+            dish_id: dishId,
+            quantity,
+            note: note ?? null,
+            source: opts?.source ?? "menu",
+            message_id: opts?.messageId,
+          });
         }
       }
     },

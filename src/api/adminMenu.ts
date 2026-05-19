@@ -1,16 +1,22 @@
 import { ApiError, BASE, apiFetch, getCSRF } from "./client";
 import type {
   ApiCategory,
+  ApiDebugSearchResponse,
   ApiDish,
+  ApiDishEmbeddingPreview,
+  ApiDishesReindexResult,
   ApiErrorBody,
+  ApiPairingTagList,
   ApiTag,
   ApiTagList,
   CreateCategoryRequest,
   CreateDishRequest,
   CreateTagRequest,
+  DebugSearchRequest,
   PatchCategoryRequest,
   PatchDishRequest,
   PatchTagRequest,
+  ReindexAllDishesRequest,
 } from "./types";
 
 /* ===== Categories ===== */
@@ -101,4 +107,53 @@ export async function adminUploadDishImage(id: number, file: File): Promise<ApiD
     throw new ApiError(res.status, err?.code ?? "upload_failed", err?.message ?? "Upload failed");
   }
   return body as ApiDish;
+}
+
+/* ===== Pairing tags vocabulary (admin) ===== */
+
+/** GET /admin/pairing-tags — все pairing-теги (включая is_active=false). */
+export function adminListPairingTags(): Promise<ApiPairingTagList> {
+  return apiFetch<ApiPairingTagList>("/admin/pairing-tags");
+}
+
+/* ===== Embed debug (admin) ===== */
+
+/**
+ * POST /admin/embed/search — голый vector-search по произвольному тексту.
+ * Без classifier/rerank/diversify/companion-логики — «как retrieval видит запрос».
+ */
+export function adminDebugSearchByQuery(req: DebugSearchRequest): Promise<ApiDebugSearchResponse> {
+  return apiFetch<ApiDebugSearchResponse>("/admin/embed/search", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+/**
+ * GET /admin/menu/{id}/embed-preview — финальный embed-текст блюда + top-N ближайших.
+ * neighbors ≤ 0 → дефолт 10.
+ */
+export function adminPreviewDishEmbedding(
+  id: number,
+  neighbors?: number,
+): Promise<ApiDishEmbeddingPreview> {
+  const qs = neighbors && neighbors > 0 ? `?neighbors=${neighbors}` : "";
+  return apiFetch<ApiDishEmbeddingPreview>(`/admin/menu/${id}/embed-preview${qs}`);
+}
+
+/* ===== Reindex (admin) ===== */
+
+/** POST /admin/menu/{id}/reindex — форсированный реиндекс одного блюда. */
+export function adminReindexDish(id: number): Promise<void> {
+  return apiFetch<void>(`/admin/menu/${id}/reindex`, { method: "POST" });
+}
+
+/** POST /admin/menu/reindex — массовый реиндекс. include_unavailable по умолчанию false. */
+export function adminReindexAllDishes(
+  req?: ReindexAllDishesRequest,
+): Promise<ApiDishesReindexResult> {
+  return apiFetch<ApiDishesReindexResult>("/admin/menu/reindex", {
+    method: "POST",
+    body: JSON.stringify(req ?? {}),
+  });
 }

@@ -8,7 +8,6 @@ import {
   Salad,
   ChevronRight,
   LogOut,
-  Bell,
   ClipboardList,
   ChefHat,
   PackageCheck,
@@ -43,8 +42,7 @@ const statusMap: Record<
   cancelled: { label: "Отменён", tone: "danger", icon: CircleX },
 };
 
-const allergenSuggestions = ["арахис", "лактоза", "глютен", "морепродукты", "яйцо", "соя", "орехи"];
-const dietarySuggestions = ["вегетарианство", "веган", "халяль", "кошер", "без свинины", "без алкоголя"];
+import { ALLERGEN_OPTIONS, DIETARY_OPTIONS, allergenLabel, dietaryLabel } from "@/data/dietaryLabels";
 
 type EditField = null | "firstName" | "lastName" | "phone";
 
@@ -67,7 +65,6 @@ export default function Profile() {
   const [openAllergens, setOpenAllergens] = useState(false);
   const [openDietary, setOpenDietary] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
-  const [openNotif, setOpenNotif] = useState(false);
 
   type StringField = "firstName" | "lastName" | "phone";
   const editConfig: Record<Exclude<EditField, null>, { title: string; type: "text" | "email" | "tel"; key: StringField }> = {
@@ -81,15 +78,6 @@ export default function Profile() {
       <Header
         title="Профиль"
         subtitle={`${profile.firstName} ${profile.lastName}`}
-        right={
-          <button
-            onClick={() => setOpenNotif(true)}
-            className="tap p-2 rounded-full text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-elev)] relative"
-          >
-            <Bell size={18} />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--color-warm)]" />
-          </button>
-        }
       />
 
       <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-5">
@@ -139,7 +127,7 @@ export default function Profile() {
                 {profile.allergens.length === 0 ? (
                   <span className="text-[12.5px] text-[var(--color-fg-subtle)]">Не указано</span>
                 ) : (
-                  profile.allergens.map((a) => <Chip key={a} tone="danger">{a}</Chip>)
+                  profile.allergens.map((a) => <Chip key={a} tone="danger">{allergenLabel(a)}</Chip>)
                 )}
               </div>
             </button>
@@ -156,7 +144,7 @@ export default function Profile() {
                 {profile.dietary.length === 0 ? (
                   <span className="text-[12.5px] text-[var(--color-fg-subtle)]">Не указано</span>
                 ) : (
-                  profile.dietary.map((d) => <Chip key={d} tone="brand">{d}</Chip>)
+                  profile.dietary.map((d) => <Chip key={d} tone="brand">{dietaryLabel(d)}</Chip>)
                 )}
               </div>
             </button>
@@ -378,7 +366,7 @@ export default function Profile() {
         title="Аллергены"
         tone="danger"
         values={profile.allergens}
-        suggestions={allergenSuggestions}
+        options={ALLERGEN_OPTIONS}
         onAdd={addAllergen}
         onRemove={removeAllergen}
       />
@@ -392,7 +380,7 @@ export default function Profile() {
         title="Ограничения"
         tone="brand"
         values={profile.dietary}
-        suggestions={dietarySuggestions}
+        options={DIETARY_OPTIONS}
         onAdd={addDietary}
         onRemove={removeDietary}
       />
@@ -412,7 +400,8 @@ export default function Profile() {
             <button
               onClick={() => {
                 setConfirmLogout(false);
-                void logout().then(() => nav("/login"));
+                nav("/menu", { replace: true });
+                void logout();
               }}
               className="tap py-3 rounded-full bg-[var(--color-danger)] text-white font-semibold text-[14px]"
             >
@@ -422,13 +411,6 @@ export default function Profile() {
         </div>
       </Sheet>
 
-      <Sheet open={openNotif} onClose={() => setOpenNotif(false)} title="Уведомления">
-        <div className="px-5 pt-2 pb-6 space-y-3">
-          <NotifItem dot title="Заказ #ord-1 готовится" subtitle="Шеф уже взял в работу. ~25 минут до выдачи." />
-          <NotifItem title="Новые блюда в меню" subtitle="Появились Гаспачо и Греческий салат." />
-          <NotifItem title="Спасибо за заказ" subtitle="Вы поставили оценку 5/5 Бургеру Truffle." />
-        </div>
-      </Sheet>
     </>
   );
 }
@@ -475,21 +457,3 @@ function Chip({ children, tone }: { children: React.ReactNode; tone: "brand" | "
   );
 }
 
-function NotifItem({ title, subtitle, dot }: { title: string; subtitle: string; dot?: boolean }) {
-  return (
-    <div className="flex gap-3">
-      <div className="mt-1.5">
-        <span
-          className={cn(
-            "inline-block w-2 h-2 rounded-full",
-            dot ? "bg-[var(--color-warm)]" : "bg-[var(--color-border-strong)]",
-          )}
-        />
-      </div>
-      <div className="flex-1">
-        <div className="text-[14px] font-semibold text-[var(--color-fg)]">{title}</div>
-        <div className="text-[12.5px] text-[var(--color-fg-muted)] mt-0.5">{subtitle}</div>
-      </div>
-    </div>
-  );
-}

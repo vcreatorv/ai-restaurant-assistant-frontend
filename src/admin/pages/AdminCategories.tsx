@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Pencil, Trash2, ChevronDown, Check } from "lucide-react";
 import { useApp } from "@/state/store";
 import { listCategories } from "@/api/menu";
 import {
@@ -13,7 +13,19 @@ import { DataTable, type Column } from "../components/DataTable";
 import { useConfirm } from "../components/ConfirmDialog";
 import { Drawer, FormField, inputClass } from "../components/Drawer";
 import { recordAction } from "../data/auditMock";
-import { mockCategories, type AdminCategory } from "../data/adminMock";
+import { mockCategories, type AdminCategory, type AdminCategoryRole } from "../data/adminMock";
+
+const ROLE_LABELS: Record<AdminCategoryRole, string> = {
+  none: "—",
+  main: "Основная",
+  companion: "Сопровождение",
+};
+
+const ROLE_HINTS: Record<AdminCategoryRole, string> = {
+  none: "Категория не участвует в логике рекомендаций.",
+  main: "Используется для диверсификации основной выдачи (на широких запросах в категории добавляется top-1 блюдо).",
+  companion: "Добавляется к рекомендации одним блюдом (соус/гарнир/десерт/напиток); пропускается, если main уже содержит категорию.",
+};
 
 /*
  * Источник данных:
@@ -27,6 +39,7 @@ function fromApi(c: ApiCategory): AdminCategory {
     name: c.name,
     sortOrder: c.sort_order,
     isAvailable: c.is_available,
+    role: c.role,
   };
 }
 
@@ -41,7 +54,12 @@ export default function AdminCategories() {
     open: false,
     cat: null,
   });
-  const [form, setForm] = useState({ name: "", sortOrder: 1, isAvailable: true });
+  const [form, setForm] = useState<{
+    name: string;
+    sortOrder: number;
+    isAvailable: boolean;
+    role: AdminCategoryRole;
+  }>({ name: "", sortOrder: 1, isAvailable: true, role: "none" });
 
   async function reload() {
     if (mockMode) return;
@@ -71,11 +89,11 @@ export default function AdminCategories() {
   }, [mockMode]);
 
   function openNew() {
-    setForm({ name: "", sortOrder: items.length + 1, isAvailable: true });
+    setForm({ name: "", sortOrder: items.length + 1, isAvailable: true, role: "none" });
     setEditing({ open: true, cat: null });
   }
   function openEdit(c: AdminCategory) {
-    setForm({ name: c.name, sortOrder: c.sortOrder, isAvailable: c.isAvailable });
+    setForm({ name: c.name, sortOrder: c.sortOrder, isAvailable: c.isAvailable, role: c.role });
     setEditing({ open: true, cat: c });
   }
 
@@ -91,6 +109,8 @@ export default function AdminCategories() {
           changes.push({ field: "Порядок", from: String(cat.sortOrder), to: String(form.sortOrder) });
         if (form.isAvailable !== cat.isAvailable)
           changes.push({ field: "Доступна", from: cat.isAvailable ? "да" : "нет", to: form.isAvailable ? "да" : "нет" });
+        if (form.role !== cat.role)
+          changes.push({ field: "Роль", from: ROLE_LABELS[cat.role], to: ROLE_LABELS[form.role] });
         recordAction({ target: "category", targetId: String(cat.id), targetLabel: form.name, verb: "update", changes });
       } else {
         const newId = Math.max(0, ...items.map((p) => p.id)) + 1;
@@ -110,6 +130,7 @@ export default function AdminCategories() {
         if (form.name !== cat.name) patch.name = form.name;
         if (form.sortOrder !== cat.sortOrder) patch.sort_order = form.sortOrder;
         if (form.isAvailable !== cat.isAvailable) patch.is_available = form.isAvailable;
+        if (form.role !== cat.role) patch.role = form.role;
         if (Object.keys(patch).length === 0) {
           setEditing({ open: false, cat: null });
           return;
@@ -120,6 +141,7 @@ export default function AdminCategories() {
           name: form.name,
           sort_order: form.sortOrder,
           is_available: form.isAvailable,
+          role: form.role,
         });
       }
       await reload();
@@ -210,6 +232,24 @@ export default function AdminCategories() {
       cell: (c) => (
         <span className="tabular-nums text-[var(--color-fg-muted)]">
           {dishCountByName.get(c.name) ?? 0}
+        </span>
+      ),
+    },
+    {
+      key: "role",
+      header: "Роль в RAG",
+      width: "150px",
+      cell: (c) => (
+        <span
+          className={
+            c.role === "main"
+              ? "inline-flex px-2 py-0.5 rounded-full text-[12px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+              : c.role === "companion"
+              ? "inline-flex px-2 py-0.5 rounded-full text-[12px] font-semibold bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+              : "text-[12px] text-[var(--color-fg-subtle)]"
+          }
+        >
+          {ROLE_LABELS[c.role]}
         </span>
       ),
     },
@@ -357,8 +397,120 @@ export default function AdminCategories() {
               />
             </button>
           </label>
+          <FormField label="Роль в рекомендациях" hint={ROLE_HINTS[form.role]}>
+            <RoleSelect
+              value={form.role}
+              onChange={(role) => setForm((f) => ({ ...f, role }))}
+            />
+          </FormField>
         </div>
       </Drawer>
     </>
+  );
+}
+
+/**
+ * RoleSelect — кастомный дропдаун выбора роли категории.
+ *
+ * Зачем не нативный <select>: на разных платформах он рендерится по-своему,
+ * не поддерживает многострочные опции с описанием и не приводится к нашему
+ * визуальному стилю. Здесь — кнопка-аккорд с popover'ом из трёх опций,
+ * каждая с лейблом + коротким описанием, активная подсвечена.
+ *
+ * Закрытие: клик вне, Escape, выбор опции. Open-state локальный.
+ */
+const ROLE_OPTIONS: { value: AdminCategoryRole; label: string; description: string }[] = [
+  { value: "none", label: "Без роли", description: "Не участвует в рекомендациях" },
+  { value: "main", label: "Основная", description: "Диверсификация main-выдачи на широких запросах" },
+  { value: "companion", label: "Сопровождение", description: "Соус / гарнир / десерт / напиток к основному" },
+];
+
+function RoleSelect({
+  value,
+  onChange,
+}: {
+  value: AdminCategoryRole;
+  onChange: (v: AdminCategoryRole) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const current = ROLE_OPTIONS.find((o) => o.value === value) ?? ROLE_OPTIONS[0];
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`${inputClass} flex items-center justify-between text-left`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="text-[14px] text-[var(--color-fg)]">{current.label}</span>
+        <ChevronDown
+          size={16}
+          className={`text-[var(--color-fg-subtle)] transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="
+            absolute z-20 left-0 right-0 mt-1.5
+            rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)]
+            shadow-lg overflow-hidden
+          "
+        >
+          {ROLE_OPTIONS.map((opt) => {
+            const active = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => {
+                  onChange(opt.value);
+                  setOpen(false);
+                }}
+                className={`
+                  w-full flex items-start gap-2 px-3 py-2.5 text-left transition-colors
+                  ${active
+                    ? "bg-[var(--color-brand-soft)] text-[var(--color-fg)]"
+                    : "hover:bg-[var(--color-bg-elev)]"}
+                `}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[14px] font-semibold ${active ? "text-[var(--color-brand)]" : "text-[var(--color-fg)]"}`}>
+                    {opt.label}
+                  </div>
+                  <div className="text-[12px] text-[var(--color-fg-muted)] mt-0.5 leading-snug">
+                    {opt.description}
+                  </div>
+                </div>
+                {active && (
+                  <Check size={16} className="text-[var(--color-brand)] mt-0.5 shrink-0" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

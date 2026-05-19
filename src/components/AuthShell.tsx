@@ -18,23 +18,7 @@ export function AuthShell({
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-y-auto scrollbar-none">
       <div className="flex-1 flex flex-col px-6 pt-12 pb-4">
-        {/* Brand */}
-        <div className="flex flex-col items-center gap-3 mb-8">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-[26px] font-semibold shadow-[0_10px_24px_-10px_rgba(0,0,0,0.3)]"
-            style={{
-              background: "linear-gradient(135deg, var(--color-warm), var(--color-brand))",
-              letterSpacing: "-0.04em",
-            }}
-          >
-            S
-          </div>
-          <div className="text-[20px] font-semibold tracking-tight text-[var(--color-fg)]">
-            Sapore
-          </div>
-        </div>
-
-        <div className="text-center mb-7">
+        <div className="text-center mb-7 mt-6">
           <h1 className="text-[24px] font-semibold tracking-tight text-[var(--color-fg)]">
             {title}
           </h1>

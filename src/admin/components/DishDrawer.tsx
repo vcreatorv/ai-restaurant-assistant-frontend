@@ -197,17 +197,18 @@ export function DishDrawer({
           <div className="flex flex-wrap gap-1.5">
             {mockTags.map((t) => {
               const active = form.tags.includes(t.name);
+              // Активный — заливка цветом темы (warm), неактивный — нейтральный outline.
+              // Цвет конкретного тега в UI не используется; в БД он хранится для совместимости.
               return (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => toggleTag(t.name)}
-                  className="px-2.5 py-1 rounded-full text-[12px] font-semibold transition-opacity"
-                  style={{
-                    backgroundColor: active ? t.color : "transparent",
-                    color: active ? "white" : t.color,
-                    border: `1px solid ${t.color}`,
-                  }}
+                  className={
+                    active
+                      ? "px-2.5 py-1 rounded-full text-[12px] font-semibold bg-[var(--color-warm-soft)] text-[var(--color-warm)] border border-[var(--color-warm)]"
+                      : "px-2.5 py-1 rounded-full text-[12px] font-semibold text-[var(--color-fg-muted)] border border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
+                  }
                 >
                   {t.name}
                 </button>

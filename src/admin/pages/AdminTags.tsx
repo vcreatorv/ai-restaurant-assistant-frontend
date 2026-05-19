@@ -16,13 +16,15 @@ import { recordAction } from "../data/auditMock";
 import { mockTags, type AdminTag } from "../data/adminMock";
 
 function fromApi(t: ApiTag): AdminTag {
+  // color сохраняем в локальной модели для совместимости с API/storage,
+  // но в UI не используем — отображаем теги нейтральным цветом темы.
   return { id: t.id, name: t.name, slug: t.slug, color: t.color };
 }
 
-const PRESET_COLORS = [
-  "#f97316", "#dc2626", "#10b981", "#65a30d", "#0284c7",
-  "#7c3aed", "#db2777", "#64748b", "#0d9488", "#ca8a04",
-];
+// Стиль чипа тега — такой же, как у клиента в DishSheet, чтобы админ видел
+// ровно то, как будет показано гостю.
+const TAG_CHIP_CLASS =
+  "inline-flex items-center px-2.5 py-1 rounded-full bg-[var(--color-warm-soft)] text-[var(--color-warm)] text-[12px] font-semibold whitespace-nowrap";
 
 /*
  * Транслит и нормализация для slug.
@@ -64,7 +66,7 @@ export default function AdminTags() {
   // slugTouched — флаг «slug правился руками». Пока false, slug автогенерируется
   // из name при каждом изменении name. Как только пользователь сам тронул slug,
   // мы перестаём его перезаписывать.
-  const [form, setForm] = useState({ name: "", slug: "", color: PRESET_COLORS[0] });
+  const [form, setForm] = useState({ name: "", slug: "" });
   const [slugTouched, setSlugTouched] = useState(false);
 
   async function reload() {
@@ -94,12 +96,12 @@ export default function AdminTags() {
   }, [mockMode]);
 
   function openNew() {
-    setForm({ name: "", slug: "", color: PRESET_COLORS[0] });
+    setForm({ name: "", slug: "" });
     setSlugTouched(false);
     setEditing({ open: true, tag: null });
   }
   function openEdit(t: AdminTag) {
-    setForm({ name: t.name, slug: t.slug, color: t.color });
+    setForm({ name: t.name, slug: t.slug });
     setSlugTouched(true); // существующий slug не перезаписываем при правке name
     setEditing({ open: true, tag: t });
   }
@@ -119,15 +121,16 @@ export default function AdminTags() {
       if (editing.tag) {
         const tag = editing.tag;
         setItems((prev) =>
-          prev.map((x) => (x.id === tag.id ? { ...x, name, color: form.color, slug } : x)),
+          prev.map((x) => (x.id === tag.id ? { ...x, name, slug } : x)),
         );
         const changes: { field: string; from?: string; to?: string }[] = [];
         if (name !== tag.name) changes.push({ field: "Название", from: tag.name, to: name });
-        if (form.color !== tag.color) changes.push({ field: "Цвет", from: tag.color, to: form.color });
+        if (slug !== tag.slug) changes.push({ field: "Идентификатор", from: tag.slug, to: slug });
         recordAction({ target: "tag", targetId: String(tag.id), targetLabel: name, verb: "update", changes });
       } else {
         const newId = Math.max(0, ...items.map((p) => p.id)) + 1;
-        setItems((prev) => [...prev, { id: newId, name, color: form.color, slug }]);
+        // color оставляем как дефолт из мока, в UI он не используется
+        setItems((prev) => [...prev, { id: newId, name, color: "#888888", slug }]);
         recordAction({ target: "tag", targetId: String(newId), targetLabel: name, verb: "create" });
       }
       setEditing({ open: false, tag: null });
@@ -142,14 +145,14 @@ export default function AdminTags() {
         const patch: Parameters<typeof adminUpdateTag>[1] = {};
         if (name !== tag.name) patch.name = name;
         if (slug !== tag.slug) patch.slug = slug;
-        if (form.color !== tag.color) patch.color = form.color;
         if (Object.keys(patch).length === 0) {
           setEditing({ open: false, tag: null });
           return;
         }
         await adminUpdateTag(tag.id, patch);
       } else {
-        await adminCreateTag({ name, slug, color: form.color });
+        // color не передаём — у БД есть default '#888888' (см. миграцию 000002_menu).
+        await adminCreateTag({ name, slug });
       }
       await reload();
       setEditing({ open: false, tag: null });
@@ -202,34 +205,13 @@ export default function AdminTags() {
     {
       key: "preview",
       header: "Превью",
-      cell: (t) => (
-        <span
-          className="inline-flex items-center px-2.5 py-1 rounded-full text-[12px] font-semibold text-white whitespace-nowrap"
-          style={{ backgroundColor: t.color }}
-        >
-          {t.name}
-        </span>
-      ),
+      cell: (t) => <span className={TAG_CHIP_CLASS}>{t.name}</span>,
     },
     { key: "name", header: "Название", cell: (t) => <span className="font-semibold">{t.name}</span> },
     {
       key: "slug",
       header: "Идентификатор",
       cell: (t) => <code className="text-[12px] text-[var(--color-fg-muted)]">{t.slug}</code>,
-    },
-    {
-      key: "color",
-      header: "Цвет",
-      width: "120px",
-      cell: (t) => (
-        <span className="flex items-center gap-2">
-          <span
-            className="w-4 h-4 rounded border border-[var(--color-border)]"
-            style={{ backgroundColor: t.color }}
-          />
-          <code className="text-[12px] text-[var(--color-fg-muted)]">{t.color}</code>
-        </span>
-      ),
     },
     {
       key: "actions",
@@ -341,38 +323,8 @@ export default function AdminTags() {
               spellCheck={false}
             />
           </FormField>
-          <FormField label="Цвет">
-            <div className="flex flex-wrap gap-2">
-              {PRESET_COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setForm((f) => ({ ...f, color: c }))}
-                  type="button"
-                  aria-label={c}
-                  className={`w-8 h-8 rounded-full transition-transform ${
-                    form.color === c
-                      ? "ring-2 ring-offset-2 ring-offset-[var(--color-bg)] ring-[var(--color-fg)]"
-                      : "hover:scale-110"
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-              <input
-                type="color"
-                value={form.color}
-                onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
-                className="w-8 h-8 rounded-full overflow-hidden cursor-pointer border border-[var(--color-border)]"
-                title="Свой цвет"
-              />
-            </div>
-          </FormField>
           <FormField label="Превью">
-            <span
-              className="inline-flex items-center px-2.5 py-1 rounded-full text-[12px] font-semibold text-white whitespace-nowrap"
-              style={{ backgroundColor: form.color }}
-            >
-              {form.name || "Тег"}
-            </span>
+            <span className={TAG_CHIP_CLASS}>{form.name || "Тег"}</span>
           </FormField>
         </div>
       </Drawer>

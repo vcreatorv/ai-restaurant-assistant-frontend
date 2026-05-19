@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, Plus, ChevronRight, SquarePen } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Send, Plus, ChevronRight, SquarePen, AlertCircle, MessageCircle } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Header } from "@/components/Header";
 import { DishImage } from "@/components/DishImage";
 import { DishSheet } from "@/components/DishSheet";
@@ -10,13 +13,16 @@ import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { useApp } from "@/state/store";
 import { createChat, getActiveChat, getChat, sendMessage } from "@/api/chat";
-import type { ApiMessage } from "@/api/types";
+import type { ApiChatSuggestion, ApiMessage } from "@/api/types";
+import { listChatSuggestions, trackSuggestionClick } from "@/api/suggestions";
+import { allergenLabel, dietaryLabel } from "@/data/dietaryLabels";
 
-const suggestions = [
-  "Что-то острое и лёгкое",
-  "Хочу сытное на двоих",
-  "Подойдёт под белое вино",
-  "До 500 рублей",
+/** Fallback на случай если бэк недоступен. Совпадает с миграционным seed'ом. */
+const fallbackSuggestions: ApiChatSuggestion[] = [
+  { id: -1, text: "Что-то острое и лёгкое" },
+  { id: -2, text: "Хочу сытное на двоих" },
+  { id: -3, text: "Подойдёт под белое вино" },
+  { id: -4, text: "До 500 рублей" },
 ];
 
 function nowTime() {
@@ -24,34 +30,58 @@ function nowTime() {
 }
 
 /*
- * Бэкенд встраивает в content финальный JSON-блок вида ```json {"recommended_dish_ids":[...]}```.
- * Из стрима он приходит токенами; мы прячем блок из отображаемого текста и достаём ids,
- * считая их источником истины (meta-событие может содержать RAG-кандидатов).
+ * Бэкенд встраивает в content финальный JSON-блок с recommended_dish_ids.
+ * По системному промпту он должен быть в ```json …``` обёртке, но LLM иногда отдают
+ * голый JSON без бэктиков — ловим оба варианта.
+ *
+ * Из стрима блок приходит токенами; прячем его «хвост» из отображаемого текста,
+ * пока он не дописан до конца. Финальные ids считаем источником истины
+ * (meta-событие SSE может тоже содержать RAG-кандидатов).
  */
 const JSON_BLOCK_RE = /```json\s*(\{[\s\S]*?\})\s*```/;
-const JSON_BLOCK_OPEN_RE = /```json/i;
+const BARE_JSON_RE = /\{\s*"recommended_dish_ids"\s*:\s*\[[^\]]*\]\s*\}/;
+// Открывающие маркеры стрима — либо ```json, либо начало голого ключа.
+const JSON_OPEN_FENCED_RE = /```json/i;
+const JSON_OPEN_BARE_RE = /\{\s*"recommended_dish_ids/;
 
 function extractRecommended(content: string): { text: string; ids?: number[] } {
-  const m = JSON_BLOCK_RE.exec(content);
-  if (!m) return { text: content };
+  // 1. Сначала пытаемся снять обёрнутый блок (предпочтительный формат).
+  let match: { full: string; json: string; index: number } | null = null;
+  const fenced = JSON_BLOCK_RE.exec(content);
+  if (fenced) {
+    match = { full: fenced[0], json: fenced[1], index: fenced.index };
+  } else {
+    // 2. Fallback: голый JSON-блок где-то в тексте.
+    const bare = BARE_JSON_RE.exec(content);
+    if (bare) {
+      match = { full: bare[0], json: bare[0], index: bare.index };
+    }
+  }
+  if (!match) return { text: content };
   let ids: number[] | undefined;
   try {
-    const parsed = JSON.parse(m[1]) as { recommended_dish_ids?: unknown };
+    const parsed = JSON.parse(match.json) as { recommended_dish_ids?: unknown };
     if (Array.isArray(parsed.recommended_dish_ids)) {
       ids = parsed.recommended_dish_ids.filter((x): x is number => typeof x === "number");
     }
   } catch {
-    // оставляем ids = undefined
+    // оставляем ids = undefined; текст всё равно вычистим
   }
-  const text = (content.slice(0, m.index) + content.slice(m.index + m[0].length)).trim();
+  const text = (content.slice(0, match.index) + content.slice(match.index + match.full.length)).trim();
   return { text, ids };
 }
 
-/** Скрывает «хвост» сообщения, начиная с открывающего ```json — пока блок ещё не дописан. */
+/**
+ * Скрывает «хвост» сообщения, как только мы видим начало JSON-блока (фенс ```json
+ * или голый ключ "recommended_dish_ids"). До закрытия блока он точно не нужен в UI.
+ */
 function stripPartialJsonBlock(content: string): string {
-  const open = JSON_BLOCK_OPEN_RE.exec(content);
-  if (!open) return content;
-  return content.slice(0, open.index).trimEnd();
+  const fencedStart = content.search(JSON_OPEN_FENCED_RE);
+  const bareStart = content.search(JSON_OPEN_BARE_RE);
+  const candidates = [fencedStart, bareStart].filter((i) => i >= 0);
+  if (candidates.length === 0) return content;
+  const start = Math.min(...candidates);
+  return content.slice(0, start).trimEnd();
 }
 
 function mapApiMessage(m: ApiMessage): ChatMessage {
@@ -72,7 +102,48 @@ function mapApiMessage(m: ApiMessage): ChatMessage {
   };
 }
 
+function GuestChatGate() {
+  return (
+    <>
+      <Header title="Ассистент" />
+      <div className="flex-1 flex items-center justify-center px-6">
+        <div className="w-full max-w-sm flex flex-col items-center text-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-[var(--color-brand)]/10 flex items-center justify-center text-[var(--color-brand)]">
+            <MessageCircle size={28} strokeWidth={1.8} />
+          </div>
+          <h2 className="text-[20px] font-semibold leading-tight text-[var(--color-fg)]">
+            Войдите, чтобы общаться с ассистентом
+          </h2>
+          <p className="text-[14px] leading-relaxed text-[var(--color-fg-muted)]">
+            Персональные рекомендации с учётом ваших пищевых ограничений и история диалогов доступны после входа.
+          </p>
+          <Link
+            to="/login"
+            className="tap mt-2 inline-flex w-full items-center justify-center rounded-2xl bg-[var(--color-brand)] px-4 py-3 text-[15px] font-semibold text-white"
+          >
+            Войти
+          </Link>
+          <Link
+            to="/register"
+            className="tap text-[13px] font-medium text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+          >
+            Нет аккаунта? Зарегистрироваться
+          </Link>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function Chat() {
+  const { session, mockMode } = useApp();
+  if (!mockMode && (!session || session.is_guest)) {
+    return <GuestChatGate />;
+  }
+  return <ChatBody />;
+}
+
+function ChatBody() {
   const { addToCart, setCartQuantity, cart, profile, mockMode } = useApp();
   // В реальном режиме приветствие — виртуальный префикс, не часть messages.
   // В mock-режиме оставляем демо-историю как есть.
@@ -86,7 +157,25 @@ export default function Chat() {
   const [cardsLayout, setCardsLayout] = useState<"horizontal" | "vertical">("horizontal");
   const [chatId, setChatId] = useState<string | null>(null);
   const [chatLoading, setChatLoading] = useState(!mockMode);
+  const [suggestions, setSuggestions] = useState<ApiChatSuggestion[]>(fallbackSuggestions);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Грузим подсказки одним запросом на mount. При ошибке остаёмся на fallback.
+  useEffect(() => {
+    if (mockMode) return;
+    let cancelled = false;
+    listChatSuggestions()
+      .then((r) => {
+        if (cancelled) return;
+        if (r.items.length > 0) setSuggestions(r.items);
+      })
+      .catch(() => {
+        // молча: fallback уже стоит
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mockMode]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -206,11 +295,21 @@ export default function Chat() {
           const visible = stripPartialJsonBlock(buffered);
           setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, text: visible } : msg)));
         },
-        onDone: () => {
+        onDone: (info) => {
           if (!placeholderId) return;
           const id = placeholderId;
           const { text, ids } = extractRecommended(buffered);
-          const finalIds = ids ?? metaIds;
+          // Server-side recommended_dish_ids — авторитативный источник: бэкенд уже
+          // парсит JSON-блок ответа LLM и применяет fallback по тексту. Если поле
+          // пришло (даже пустым массивом) — это финальное решение, не падаем на
+          // metaIds (там лежат ВСЕ RAG-кандидаты, 8+4 штук — если их показать,
+          // юзер получит «много блюд» вместо одного реально упомянутого).
+          // Fallback на JSON в тексте / metaIds только если сервер вообще не вернул
+          // поле (старая версия бэкенда без done.recommended_dish_ids).
+          const finalIds =
+            info.recommended_dish_ids !== undefined
+              ? info.recommended_dish_ids
+              : (ids ?? metaIds);
           setMessages((m) =>
             m.map((msg) =>
               msg.id === id ? { ...msg, text, recommendedDishIds: finalIds } : msg,
@@ -218,10 +317,17 @@ export default function Chat() {
           );
         },
         onStreamError: (err) => {
+          // Тех. детали — в консоль для отладки, в чат — короткое user-friendly сообщение.
+          console.error("[chat] stream error:", err);
           if (!placeholderId) ensurePlaceholder(`a-${Date.now()}`);
           const id = placeholderId;
-          const text = `Не удалось получить ответ: ${err.message}`;
-          setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, text } : msg)));
+          setMessages((m) =>
+            m.map((msg) =>
+              msg.id === id
+                ? { ...msg, text: "Что-то пошло не так. Попробуйте ещё раз.", isError: true }
+                : msg,
+            ),
+          );
         },
       });
       // Страховка: если сервер закрыл стрим без события done.
@@ -238,6 +344,7 @@ export default function Chat() {
         }
       }
     } catch (e) {
+      console.error("[chat] send failed:", e);
       if (!placeholderId) {
         const id = `a-err-${Date.now()}`;
         setMessages((m) => [
@@ -245,8 +352,9 @@ export default function Chat() {
           {
             id,
             role: "assistant",
-            text: `Не удалось отправить сообщение: ${e instanceof Error ? e.message : "ошибка сети"}`,
+            text: "Что-то пошло не так. Попробуйте ещё раз.",
             time: nowTime(),
+            isError: true,
           },
         ]);
       }
@@ -284,31 +392,32 @@ export default function Chat() {
     }
   }
 
-  function quickAdd(dishId: number) {
-    addToCart(dishId);
+  // quickAdd принимает messageId — id ассистент-сообщения, из которого пришла рекомендация.
+  // Используется для аналитики «в корзину из чата» (cart_additions.source='chat').
+  function quickAdd(dishId: number, messageId?: string) {
+    addToCart(dishId, 1, undefined, { source: "chat", messageId });
   }
 
   return (
     <>
       <Header
-        title="Sapore"
-        subtitle={`Помощник по меню · ${profile.firstName}`}
+        compact
+        title="Чат"
         right={
           <button
             onClick={() => void startNewChat()}
             title="Новый диалог"
             aria-label="Новый диалог"
-            className="tap p-2 rounded-full text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-elev)]"
+            className="tap p-1.5 rounded-full text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-elev)]"
           >
-            <SquarePen size={18} />
+            <SquarePen size={16} />
           </button>
         }
       />
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-4">
-        {/* Subtle context bar — без иконок-стикеров */}
-        <ContextBar profile={profile} />
+      <ContextBar profile={profile} />
 
+      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-4">
         {/* Временный переключатель — для сравнения двух раскладок карточек.
             Будет убран после выбора финального варианта. */}
         <div className="flex items-center gap-2 text-[11px]">
@@ -368,8 +477,12 @@ export default function Chat() {
       <div className="flex-none px-4 pb-2 flex gap-2 overflow-x-auto scrollbar-none">
         {suggestions.map((s) => (
           <button
-            key={s}
-            onClick={() => send(s)}
+            key={s.id}
+            onClick={() => {
+              // Аналитика: трекаем клик до отправки. Для fallback-подсказок (id<0) не трекаем.
+              if (s.id > 0) void trackSuggestionClick(s.id);
+              send(s.text);
+            }}
             className="
               tap shrink-0 px-3 py-1.5 rounded-full
               text-[12px] text-[var(--color-fg-muted)]
@@ -377,7 +490,7 @@ export default function Chat() {
               hover:bg-[var(--color-bg-elev)] hover:text-[var(--color-fg)]
             "
           >
-            {s}
+            {s.text}
           </button>
         ))}
       </div>
@@ -409,7 +522,7 @@ export default function Chat() {
             className="
               flex-1 resize-none bg-transparent outline-none px-2 py-2
               text-[15px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)]
-              max-h-32
+              max-h-32 scrollbar-thin
             "
           />
           <button
@@ -436,21 +549,64 @@ export default function Chat() {
  * ContextBar — тонкая полоска "что я учёл" вместо стикерной карточки.
  * Чёткая, незаметная, расширяется по тапу (можно потом).
  */
+/*
+ * AssistantMarkdown — рендер ответа ассистента через react-markdown.
+ * Поддерживает только то, что мы реально просим в system-промпте:
+ * **жирный** для названий блюд и пустые строки между абзацами.
+ * Заголовки/списки/код инлайнятся как обычный текст (промпт явно их запрещает,
+ * но если LLM вдруг сгенерит — пусть рендерится не как блок).
+ *
+ * Каретка стрима показывается на ВНУТРЕННЕМ последнем элементе через CSS-class на враппере.
+ */
+function AssistantMarkdown({ text, isStreaming }: { text: string; isStreaming: boolean }) {
+  return (
+    <div className={cn("space-y-2 [&_p]:m-0 [&_strong]:font-semibold", isStreaming && "assistant-streaming")}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Заголовки рендерим как обычный жирный абзац — мы их не используем, но и не падаем.
+          h1: ({ children }) => <p className="font-semibold">{children}</p>,
+          h2: ({ children }) => <p className="font-semibold">{children}</p>,
+          h3: ({ children }) => <p className="font-semibold">{children}</p>,
+          // Списки промпт запрещает, но если LLM пришлёт — рендерим компактно.
+          ul: ({ children }) => <ul className="list-disc pl-5 space-y-0.5">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal pl-5 space-y-0.5">{children}</ol>,
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+/**
+ * ContextBar — индикатор активных ограничений профиля (аллергены + диета).
+ *
+ * Лежит отдельной flex-none-панелью МЕЖДУ header'ом и скролл-областью сообщений,
+ * а не внутри прокручивающегося контента. Это не контент диалога, а состояние
+ * фильтра — логичнее держать его всегда на виду, не sticky-имитацией.
+ */
 function ContextBar({ profile }: { profile: { firstName: string; allergens: string[]; dietary: string[] } }) {
-  const items = [...profile.allergens, ...profile.dietary];
+  // В профиле хранятся канонические коды (nuts/dairy/...); для UI переводим в русские лейблы.
+  const items = [
+    ...profile.allergens.map(allergenLabel),
+    ...profile.dietary.map(dietaryLabel),
+  ];
   if (items.length === 0) return null;
   return (
-    <div className="rounded-2xl border border-dashed border-[var(--color-border-strong)] bg-transparent px-3.5 py-2.5">
-      <div className="flex items-center gap-2 flex-wrap text-[12px] leading-tight">
-        <span className="text-[var(--color-fg-subtle)] font-medium uppercase tracking-wider text-[10.5px]">
-          Ограничения
-        </span>
-        {items.map((it, idx) => (
-          <span key={`${it}-${idx}`} className="text-[var(--color-fg)]">
-            {it}
-            {idx < items.length - 1 && <span className="text-[var(--color-fg-subtle)]"> · </span>}
+    <div className="flex-none px-4 pt-2 pb-2 bg-[var(--color-bg)] border-b border-[var(--color-border)]">
+      <div className="rounded-2xl border border-dashed border-[var(--color-border-strong)] bg-[var(--color-bg-elev)]/60 px-3.5 py-2">
+        <div className="flex items-center gap-2 flex-wrap text-[12px] leading-tight">
+          <span className="text-[var(--color-fg-subtle)] font-medium uppercase tracking-wider text-[10.5px]">
+            Ограничения
           </span>
-        ))}
+          {items.map((it, idx) => (
+            <span key={`${it}-${idx}`} className="text-[var(--color-fg)]">
+              {it}
+              {idx < items.length - 1 && <span className="text-[var(--color-fg-subtle)]"> · </span>}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -468,17 +624,41 @@ function Bubble({
   message: ChatMessage;
   isStreamingThis: boolean;
   onOpenDish: (d: Dish) => void;
-  onAdd: (dishId: number) => void;
+  /**
+   * onAdd с опциональным messageId — id assistant-сообщения, из которого
+   * взято блюдо. Передаётся в analytics (cart_additions.source='chat').
+   */
+  onAdd: (dishId: number, messageId?: string) => void;
   onSetQty: (dishId: number, qty: number) => void;
   cart: CartItem[];
   layout: "horizontal" | "vertical";
 }) {
+  // Привязываем messageId один раз; вниз передаём «частично-applied» onAdd —
+  // под-компоненты остаются с простой сигнатурой (dishId) => void.
+  const onAddBound =
+    message.role === "assistant"
+      ? (dishId: number) => onAdd(dishId, message.id)
+      : (dishId: number) => onAdd(dishId);
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
         <div className="max-w-[82%] rounded-2xl rounded-br-md bg-[var(--color-brand)] text-[var(--color-brand-fg)] px-4 py-2.5 text-[14.5px] leading-relaxed shadow-sm">
           {message.text}
           <div className="text-[10.5px] opacity-70 mt-1 text-right">{message.time}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.isError) {
+    return (
+      <div className="flex gap-2 items-start">
+        <div className="shrink-0 w-7 h-7 rounded-full bg-[var(--color-danger)]/15 text-[var(--color-danger)] flex items-center justify-center">
+          <AlertCircle size={15} />
+        </div>
+        <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-[var(--color-danger)]/10 border border-[var(--color-danger)]/25 px-4 py-2.5 text-[14px] leading-relaxed text-[var(--color-fg)]">
+          {message.text}
+          <div className="text-[10.5px] text-[var(--color-fg-subtle)] mt-1">{message.time}</div>
         </div>
       </div>
     );
@@ -494,7 +674,7 @@ function Bubble({
           S
         </div>
         <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-[var(--color-bg-elev)] border border-[var(--color-border)] px-4 py-2.5 text-[14.5px] leading-relaxed text-[var(--color-fg)]">
-          <p className={cn(isStreaming && "cursor-blink")}>{message.text}</p>
+          <AssistantMarkdown text={message.text} isStreaming={isStreaming} />
           <div className="text-[10.5px] text-[var(--color-fg-subtle)] mt-1">{message.time}</div>
         </div>
       </div>
@@ -503,7 +683,7 @@ function Bubble({
         <RecsHorizontal
           ids={recIds}
           onOpen={onOpenDish}
-          onAdd={onAdd}
+          onAdd={onAddBound}
           onSetQty={onSetQty}
           cart={cart}
         />
@@ -512,7 +692,7 @@ function Bubble({
         <RecsVertical
           ids={recIds}
           onOpen={onOpenDish}
-          onAdd={onAdd}
+          onAdd={onAddBound}
           onSetQty={onSetQty}
           cart={cart}
         />
@@ -707,7 +887,7 @@ function WelcomeBubble({ firstName }: { firstName: string }) {
         S
       </div>
       <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-[var(--color-bg-elev)] border border-[var(--color-border)] px-4 py-2.5 text-[14.5px] leading-relaxed text-[var(--color-fg)]">
-        {greeting} Я Sapore — помогу подобрать блюда под ваше настроение, время и ограничения.
+        {greeting} Помогу подобрать блюда под ваше настроение, время и ограничения.
         Расскажите, что хотелось бы сегодня, или нажмите одну из подсказок ниже.
       </div>
     </div>

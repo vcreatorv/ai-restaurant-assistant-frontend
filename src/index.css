@@ -69,6 +69,11 @@
 }
 
 @layer utilities {
+  .scrollbar-thin {
+    /* Firefox + современные браузеры */
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -76,6 +81,9 @@
   .scrollbar-thin::-webkit-scrollbar-thumb {
     background: var(--color-border-strong);
     border-radius: 999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: var(--color-fg-subtle);
   }
   .scrollbar-thin::-webkit-scrollbar-track {
     background: transparent;
@@ -117,6 +125,18 @@
   50%, 100% { opacity: 0; }
 }
 .cursor-blink::after {
+  content: "▍";
+  margin-left: 2px;
+  animation: blink 1s steps(1) infinite;
+  color: var(--color-brand);
+}
+
+/*
+ * Каретка стрима для ответа ассистента. У react-markdown текст рендерится в
+ * абзацы <p> — мы навешиваем псевдоэлемент на ПОСЛЕДНИЙ абзац обёртки
+ * .assistant-streaming, чтобы курсор моргал в конце текущего токена.
+ */
+.assistant-streaming > * > p:last-child::after {
   content: "▍";
   margin-left: 2px;
   animation: blink 1s steps(1) infinite;

@@ -7,19 +7,21 @@ import {
   ClipboardList,
   BarChart3,
   PencilLine,
+  MessageCircleQuestion,
   Eye,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useApp } from "@/state/store";
 
 const links = [
-  { to: "/admin", label: "Дашборд", icon: LayoutDashboard, end: true },
+  { to: "/admin", label: "Главная", icon: LayoutDashboard, end: true },
+  { to: "/admin/analytics", label: "Аналитика", icon: BarChart3 },
+  { to: "/admin/prompts", label: "Инструкции модели", icon: PencilLine },
+  { to: "/admin/suggestions", label: "Подсказки чата", icon: MessageCircleQuestion },
   { to: "/admin/menu", label: "Меню", icon: UtensilsCrossed },
   { to: "/admin/categories", label: "Категории", icon: FolderTree },
   { to: "/admin/tags", label: "Теги", icon: Tags },
   { to: "/admin/orders", label: "Заказы", icon: ClipboardList },
-  { to: "/admin/prompts", label: "Промпты", icon: PencilLine },
-  { to: "/admin/analytics", label: "Аналитика", icon: BarChart3 },
 ];
 
 function initials(first: string, last: string): string {
@@ -41,11 +43,8 @@ export function AdminSidebar() {
   return (
     <aside className="flex-none w-[240px] h-screen sticky top-0 border-r border-[var(--color-border)] bg-[var(--color-bg-elev)] flex flex-col">
       <div className="px-6 h-14 flex items-center gap-2 border-b border-[var(--color-border)]">
-        <span className="text-[18px] font-semibold tracking-tight text-[var(--color-fg)] leading-none">
-          Sapore
-        </span>
-        <span className="text-[11px] uppercase tracking-wider text-[var(--color-fg-subtle)] leading-none">
-          admin
+        <span className="text-[13px] uppercase tracking-wider text-[var(--color-fg-subtle)] leading-none">
+          Админ-панель
         </span>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">

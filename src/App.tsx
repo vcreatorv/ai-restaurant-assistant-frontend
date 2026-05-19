@@ -16,6 +16,7 @@ import Dashboard from "@/admin/pages/Dashboard";
 import AdminMenu from "@/admin/pages/AdminMenu";
 import AdminCategories from "@/admin/pages/AdminCategories";
 import AdminTags from "@/admin/pages/AdminTags";
+import AdminSuggestions from "@/admin/pages/AdminSuggestions";
 import AdminOrders from "@/admin/pages/AdminOrders";
 import AdminAnalytics from "@/admin/pages/AdminAnalytics";
 import AdminProfile from "@/admin/pages/AdminProfile";
@@ -69,6 +70,12 @@ function ProtectedRoute() {
   return <Outlet />;
 }
 
+function RootRedirect() {
+  const { session } = useApp();
+  const target = !session || session.is_guest ? "/menu" : "/chat";
+  return <Navigate to={target} replace />;
+}
+
 function AdminRoute() {
   const { isAdmin, sessionLoading } = useApp();
   if (sessionLoading) return null;
@@ -89,7 +96,7 @@ export default function App() {
               <Route path="/register" element={<Register />} />
             </Route>
             <Route element={<AppLayout />}>
-              <Route path="/" element={<Navigate to="/chat" replace />} />
+              <Route path="/" element={<RootRedirect />} />
               <Route path="/chat" element={<Chat />} />
               <Route path="/menu" element={<Menu />} />
               <Route path="/cart" element={<Cart />} />
@@ -97,7 +104,7 @@ export default function App() {
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/orders/:id" element={<OrderDetail />} />
               </Route>
-              <Route path="*" element={<Navigate to="/chat" replace />} />
+              <Route path="*" element={<RootRedirect />} />
             </Route>
             <Route element={<AdminRoute />}>
               <Route element={<AdminLayout />}>
@@ -105,6 +112,7 @@ export default function App() {
                 <Route path="/admin/menu" element={<AdminMenu />} />
                 <Route path="/admin/categories" element={<AdminCategories />} />
                 <Route path="/admin/tags" element={<AdminTags />} />
+                <Route path="/admin/suggestions" element={<AdminSuggestions />} />
                 <Route path="/admin/orders" element={<AdminOrders />} />
                 <Route path="/admin/analytics" element={<AdminAnalytics />} />
                 <Route path="/admin/prompts" element={<AdminPrompts />} />

@@ -7,7 +7,7 @@ import { ApiError } from "@/api/client";
 
 export default function Login() {
   const nav = useNavigate();
-  const { login, loginAsMockAdmin } = useApp();
+  const { login } = useApp();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -40,17 +40,6 @@ export default function Login() {
       subtitle="Войдите, чтобы продолжить подбор блюд"
       footer={
         <>
-          <div className="flex items-center gap-3 my-5">
-            <div className="flex-1 h-px bg-[var(--color-border)]" />
-            <span className="text-[11px] uppercase tracking-wider text-[var(--color-fg-subtle)] font-medium">
-              или
-            </span>
-            <div className="flex-1 h-px bg-[var(--color-border)]" />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <OAuthButton label="Google" />
-            <OAuthButton label="Apple" />
-          </div>
           <p className="text-center text-[13px] text-[var(--color-fg-muted)] mt-6">
             Нет аккаунта?{" "}
             <Link
@@ -60,16 +49,6 @@ export default function Login() {
               Зарегистрироваться
             </Link>
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              loginAsMockAdmin();
-              nav("/admin");
-            }}
-            className="tap mt-3 w-full text-center text-[12px] text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)] underline underline-offset-2"
-          >
-            Войти как админ (демо)
-          </button>
         </>
       }
     >
@@ -113,14 +92,6 @@ export default function Login() {
               </button>
             </div>
           </label>
-          <div className="flex justify-end mt-2">
-            <button
-              type="button"
-              className="tap text-[12px] text-[var(--color-fg-muted)] hover:text-[var(--color-brand)] font-medium"
-            >
-              Забыли пароль?
-            </button>
-          </div>
         </div>
 
         {error && (
@@ -135,18 +106,3 @@ export default function Login() {
   );
 }
 
-function OAuthButton({ label }: { label: string }) {
-  return (
-    <button
-      type="button"
-      className="
-        tap h-11 rounded-full
-        bg-[var(--color-bg-elev)] border border-[var(--color-border)]
-        text-[14px] font-semibold text-[var(--color-fg)]
-        hover:border-[var(--color-border-strong)]
-      "
-    >
-      {label}
-    </button>
-  );
-}
